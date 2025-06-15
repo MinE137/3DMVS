@@ -425,7 +425,6 @@ def fetch_3d_sdf_and_iupac_any(inp):
             tried.append(search_type)
         except Exception:
             tried.append(search_type)
-    # --- Fallback for water (H2O) ---
     if inp.strip().lower() in ['h2o', 'water']:
         try:
             comp = pcp.Compound.from_cid(962)
@@ -472,7 +471,6 @@ class Atom:
         self.neighbors = set()
         self.is_center = False
         self.bond_count = 0
-
     def update_center_info(self):
         self.bond_count = len(self.neighbors)
         self.is_center = self.bond_count >= 2
@@ -488,7 +486,6 @@ class Molecule:
         self.atoms = []
         self.bonds = []
         self.build_from_rdkit(mol)
-
     def build_from_rdkit(self, mol):
         conf = mol.GetConformer()
         for atom in mol.GetAtoms():
@@ -503,7 +500,6 @@ class Molecule:
             self.atoms[j].neighbors.add(i)
         for atom in self.atoms:
             atom.update_center_info()
-
     def atom_summary(self):
         counts = Counter([a.symbol for a in self.atoms])
         lines = []
@@ -518,10 +514,8 @@ class Molecule:
                 en = r = ie = ea = '?'
             lines.append(f"{sym}({cnt}): EN({en}), R({r}), IE1({ie}), EA({ea})")
         return "\n".join(lines)
-
     def get_positions(self):
         return np.array([a.pos for a in self.atoms])
-
     def get_symbols(self):
         return [a.symbol for a in self.atoms]
 
@@ -585,12 +579,9 @@ def make_regular_triangle(center, bonded_atoms, radius=1.5):
     """
     n = len(bonded_atoms)
     verts = []
-    # 1. 결합 원자 좌표를 꼭짓점에 우선 할당 (중심 기준 상대좌표)
     for i in range(min(n,3)):
         verts.append(bonded_atoms[i] - center)
-    # 2. 부족한 꼭짓점은 평면상에 정삼각형 형태로 자동 생성
     if n < 3:
-        # 평면 결정: 인접 원자가 없으면 z=0, 1개면 그 벡터 기준, 2개면 두 벡터의 법선
         if n == 0:
             normal = np.array([0,0,1])
             start = np.array([radius,0,0])
@@ -601,7 +592,7 @@ def make_regular_triangle(center, bonded_atoms, radius=1.5):
                 normal = np.cross(v, [0,1,0])
             normal = normal / np.linalg.norm(normal)
             start = v * radius
-        else: # n==2
+        else:
             v1 = verts[0] / np.linalg.norm(verts[0])
             v2 = verts[1] / np.linalg.norm(verts[1])
             normal = np.cross(v1, v2)
@@ -609,14 +600,12 @@ def make_regular_triangle(center, bonded_atoms, radius=1.5):
                 normal = np.array([0,0,1])
             normal = normal / np.linalg.norm(normal)
             start = (v1 + v2) / 2 * radius
-        # 부족한 꼭짓점들을 120도(2π/3) 간격으로 배치
         for i in range(3-n):
             angle = 2*np.pi/3 * (i+1)
             rot = rotation_matrix(normal, angle)
             pt = np.dot(rot, start)
             verts.append(pt)
     verts = np.array(verts)
-    # 3. 무게중심을 원점으로 이동 후 center로 평행이동
     centroid = verts.mean(axis=0)
     verts = verts - centroid + center
     return verts
@@ -624,23 +613,19 @@ def make_regular_triangle(center, bonded_atoms, radius=1.5):
 def make_regular_tetrahedron(center, neighbors, radius=1.5):
     n = len(neighbors)
     verts = []
-
     if n == 2:
         a, b = neighbors[0], neighbors[1]
         edge = np.linalg.norm(a - b)
-        # 표준 정사면체(무게중심 원점, 한 변 edge)
         v0 = np.array([edge/2, 0, -edge/(2*np.sqrt(3))])
         v1 = np.array([-edge/2, 0, -edge/(2*np.sqrt(3))])
         h = edge * np.sqrt(2/3)
         v2 = np.array([0, edge/2, h - edge/(2*np.sqrt(3))])
         v3 = np.array([0, -edge/2, h - edge/(2*np.sqrt(3))])
         base = np.array([v0, v1, v2, v3])
-        # 모든 꼭짓점 쌍을 순회하며 rigid transform 적용
         best_verts = None
         min_error = float('inf')
         for i, j in combinations(range(4), 2):
             for perm in permutations([a, b]):
-                # std_vec: base[j] - base[i], tgt_vec: perm[1] - perm[0]
                 std_vec = base[j] - base[i]
                 tgt_vec = perm[1] - perm[0]
                 def rotation_matrix_from_vectors(vec1, vec2):
@@ -652,8 +637,8 @@ def make_regular_tetrahedron(center, neighbors, radius=1.5):
                         return np.eye(3)
                     s = np.linalg.norm(v)
                     kmat = np.array([[0, -v[2], v[1]],
-                                     [v[2], 0, -v[0]],
-                                     [-v[1], v[0], 0]])
+                                    [v[2], 0, -v[0]],
+                                    [-v[1], v[0], 0]])
                     return np.eye(3) + kmat + kmat @ kmat * ((1 - c) / (s ** 2))
                 R = rotation_matrix_from_vectors(std_vec, tgt_vec)
                 base_shifted = base - base[i]
@@ -665,18 +650,14 @@ def make_regular_tetrahedron(center, neighbors, radius=1.5):
                     min_error = error
                     best_verts = verts.copy()
         return best_verts
-
     elif n == 3:
-        # 기존 방식: 세 결합원자와 선택 원자 기준으로 정사면체 생성
         verts = []
         for i in range(3):
             verts.append(neighbors[i] - center)
-        # 마지막 꼭짓점 임시 추가
         verts = np.array(verts)
         verts = np.vstack([verts, np.array([0,0,-radius])])
         centroid = verts.mean(axis=0)
         verts = verts - centroid + center
-        # 면을 기준으로 네 번째 꼭짓점 재조정(기존 코드 유지)
         if verts.shape[0] == 4:
             p1, p2, p3 = verts[:3]
             face_center = (p1 + p2 + p3) / 3
@@ -688,17 +669,13 @@ def make_regular_tetrahedron(center, neighbors, radius=1.5):
             centroid = verts.mean(axis=0)
             verts = verts - centroid + center
         return verts
-
     elif n == 4:
-        # 네 결합형성원자를 꼭짓점으로 하는 정사면체, 무게중심이 center
         verts = [neighbors[i] - center for i in range(4)]
         verts = np.array(verts)
         centroid = verts.mean(axis=0)
         verts = verts - centroid + center
         return verts
-
     else:
-        # 일반적인 경우(3개 미만): 기존 방식 사용
         base = np.array([
             [1, 1, 1],
             [1, -1, -1],
@@ -710,6 +687,7 @@ def make_regular_tetrahedron(center, neighbors, radius=1.5):
         centroid = verts.mean(axis=0)
         verts = verts - centroid + center
         return verts
+    
 def add_sn_shape(plotter, sn, center, neighbor_positions, radius=1.5):
     color = '#00C800'
     width = 3
@@ -725,20 +703,13 @@ def add_sn_shape(plotter, sn, center, neighbor_positions, radius=1.5):
         line = pv.Line(verts[i], verts[j])
         plotter.add_mesh(line, color=color, line_width=width)
 
-
-
 def get_periodic_table_positions():
-    # 프랑슘 반지름(Å) × 2.2
     fr_radius = ELEMENT_PROPERTIES['Fr'][0]
     spacing = fr_radius * 2.2  # ≈ 7.656 Å
-
     positions = {}
-    # 란타넘족/악티늄족의 y오프셋
     lanthanide_row = 7
     actinide_row = 8
-    # 7주기(y=7), 란타넘족(y=8), 악티늄족(y=9)로 배치
     for row, line in enumerate(PERIODIC_TABLE_GRID):
-        # 란타넘족과 악티늄족은 7주기보다 더 아래에 위치
         if row == lanthanide_row:
             y = (7 + 1) * spacing  # 7주기 아래
         elif row == actinide_row:
@@ -749,8 +720,6 @@ def get_periodic_table_positions():
             if sym and sym in ELEMENT_PROPERTIES:
                 positions[sym] = (col * spacing, -y, 0)
     return positions
-
-
 
 def get_bond_label_pos_perp(atom_positions, bonds, offset=0.5):
     mid = np.mean(atom_positions, axis=0)
@@ -801,13 +770,11 @@ class HydrogenOrbital:
         self.R = np.sqrt(self.X**2 + self.Y**2 + self.Z**2)
         self.PHI = np.arctan2(self.Y, self.X)
         self.THETA = np.arccos(np.clip(self.Z / (self.R + 1e-10), -1, 1))
-        # 오비탈 크기 축적: 수소 오비탈 크기(Å) → 선택 원소 오비탈 크기(Å)로 비율 조정
         self.hydrogen_r = HYDROGEN_ORBITAL_RADII[orb_type]
         self.element_r = ELEMENT_ORBITAL_RADII[atom_symbol][orb_type]
         self.scale = self.element_r / self.hydrogen_r
-
     def radial_wavefunc(self, r):
-        a0 = 0.529  # Bohr 반지름(Å)
+        a0 = 0.529 
         r_bohr = r / a0
         if self.n == 1 and self.l == 0:
             return 2 * np.exp(-r_bohr)
@@ -817,27 +784,24 @@ class HydrogenOrbital:
             return r_bohr * np.exp(-r_bohr/2) / (2 * np.sqrt(6))
         else:
             return np.zeros_like(r)
-
     def angular_wavefunc(self, theta, phi):
         from scipy.special import sph_harm_y
         if self.l == 0 and self.m == 0:
             return sph_harm_y(0, 0, theta, phi).real
         elif self.l == 1:
             if self.m == 0:
-                return sph_harm_y(1, 0, theta, phi).real  # pz
+                return sph_harm_y(1, 0, theta, phi).real
             elif self.m == 1:
-                return np.sqrt(2) * sph_harm_y(1, 1, theta, phi).real  # px
+                return np.sqrt(2) * sph_harm_y(1, 1, theta, phi).real
             elif self.m == -1:
-                return np.sqrt(2) * sph_harm_y(1, 1, theta, phi).imag  # py
+                return np.sqrt(2) * sph_harm_y(1, 1, theta, phi).imag
         else:
             return np.zeros_like(theta)
-
     def wavefunc(self):
         R_part = self.radial_wavefunc(self.R)
         Y_part = self.angular_wavefunc(self.THETA, self.PHI)
         psi = R_part * Y_part
         return psi
-
     def generate_isosurfaces(self):
         psi = self.wavefunc()
         psi_real = np.real(psi)
@@ -868,13 +832,7 @@ class HydrogenOrbital:
                         'color': color
                     })
         return surfaces
-
-
-
-
-
-
-
+    
 def get_orbital_rotation(orb_type):
     if orb_type == 'pz':
         return np.eye(3)
@@ -884,9 +842,8 @@ def get_orbital_rotation(orb_type):
         return np.array([[1,0,0],[0,0,1],[0,1,0]])
     else:
         return np.eye(3)
-
+    
 def get_lone_pair_count(element_property_value, bond_count):
-   
     v = element_property_value
     b = bond_count
     if v in (1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 18):
@@ -915,10 +872,6 @@ def get_lone_pair_count(element_property_value, bond_count):
         elif b == 7:
             return 0
     return 0
-
-
-# MoleculeApp 클래스와 main 루프는 위에서 안내한 전체 코드 그대로 이어서 붙여넣으시면 됩니다.
-
 
 class MoleculeApp(QWidget):
     def __init__(self):
@@ -972,15 +925,12 @@ class MoleculeApp(QWidget):
         self.bonds          = []
         self.bond_lengths   = []
         self.bond_angles    = []
-
-
         self.s_checkbox = QCheckBox("s")
         self.s_checkbox.setChecked(False)
         self.s_checkbox.setFont(QFont("Arial", 12))
         self.s_checkbox.stateChanged.connect(self.update_ao_sub_visibility)
         self.s_checkbox.stateChanged.connect(self.redraw)
         self.s_checkbox.hide()
-
         self.p_checkbox = QCheckBox("p")
         self.p_checkbox.setChecked(False)
         self.p_checkbox.setFont(QFont("Arial", 12))
@@ -1019,34 +969,23 @@ class MoleculeApp(QWidget):
         self.setFocusPolicy(Qt.StrongFocus)
         self.plotter.enable_point_picking(callback=self.on_atom_pick, use_picker=True, show_message=False, left_clicking=True, show_point=False)
 
-    def analyze_hybridization(self):
+    def analyze_StericNumber(self):
         if not hasattr(self, "molecule") or self.selected_atom_idx is None or self.atom_positions is None:
             self.hybridization_info = None
             return
-
         atom = self.molecule.atoms[self.selected_atom_idx]
         symbol = atom.symbol
-
-    # (1) 결합수: 다중결합도 1로 계산
         bond_count = len(atom.neighbors)
         if bond_count == 0:
             self.hybridization_info = None
             return
-
-    # (3) 족 번호 추출
         prop = ELEMENT_PROPERTIES.get(symbol)
         group_number = prop[-2] if prop and len(prop) >= 2 else None
-
-    # (4) get_lone_pair_count로 lone_pairs 계산
         if group_number is not None:
             lone_pairs = get_lone_pair_count(group_number, bond_count)
         else:
             lone_pairs = 0
-
-    # (5) SN 계산: 결합수(다중결합도 1로) + lone_pairs
         SN = bond_count + lone_pairs
-
-    # (6) 구조/혼성화 판정은 기존 방식대로
         if SN <= 1:
             structure, hybrid = None, None
         elif SN == 2:
@@ -1063,17 +1002,15 @@ class MoleculeApp(QWidget):
             structure, hybrid = '굽은형2', 'sp3'
         else:
             structure, hybrid = None, None
-
         self.hybridization_info = {
         'atom_idx': self.selected_atom_idx,
         'symbol': symbol,
-        'bond_count': bond_count,  # 다중결합도 1로 센 결합수
+        'bond_count': bond_count,
         'lone_pairs': lone_pairs,
         'SN': SN,
         'structure': structure,
         'hybrid': hybrid
     }
-   
 
 
     def update_ao_visibility(self, state):
@@ -1113,7 +1050,7 @@ class MoleculeApp(QWidget):
         dists = np.linalg.norm(self.atom_positions + self.view_offset - picked_pos, axis=1)
         idx = int(np.argmin(dists))
         self.selected_atom_idx = idx
-        self.analyze_hybridization()  # 혼성화 정보 판정 추가
+        self.analyze_StericNumber()
         self.redraw()
 
 
@@ -1129,7 +1066,6 @@ class MoleculeApp(QWidget):
             return
         if inp.lower() == "all":
             positions = get_periodic_table_positions()
-        # 2D 격자 순서대로 원소 나열
             tokens = [sym for row in PERIODIC_TABLE_GRID for sym in row if sym and sym in ELEMENT_PROPERTIES]
             atom_meshes = []
             atom_infos = []
@@ -1153,7 +1089,6 @@ class MoleculeApp(QWidget):
             self.atom_list_label.setText('\n'.join(atom_infos))
             self.redraw()
             return
-
         else:
             tokens = inp.split()
         if all(t in ELEMENT_PROPERTIES for t in tokens) and len(tokens) > 0:
@@ -1211,26 +1146,20 @@ class MoleculeApp(QWidget):
             self.atom_list_label.setText("")
 
     def redraw(self):
-        # 화면 초기화
         self.plotter.clear()
         offset = self.view_offset if hasattr(self, "view_offset") else np.array([0.0, 0.0, 0.0])
-        # AO 토글 상태와 선택 인덱스 가져오기
         ao_on   = self.ao_checkbox.isChecked()
         sel_idx = self.selected_atom_idx
-        # AO 그릴 수 있는 유효 조건: 토글 켜짐, 인덱스 존재, 리스트 범위 내
         valid_ao = (
             ao_on
             and sel_idx is not None
             and hasattr(self, "atom_symbols")
             and 0 <= sel_idx < len(self.atom_symbols)
         )
-        # 원자 메시 그리기 (AO도 여기서 처리)
         for i, (mesh, color) in enumerate(self.atom_meshes or []):
             mesh_copy = mesh.copy()
             mesh_copy.translate(offset)
-
             if valid_ao and i == sel_idx:
-                # 선택된 원자는 반투명으로 그리고 핵 표시
                 self.plotter.add_mesh(mesh_copy, color=color, opacity=0.2,
                                     specular=0.4, smooth_shading=True)
                 center      = mesh_copy.center
@@ -1241,25 +1170,18 @@ class MoleculeApp(QWidget):
                 self.plotter.add_mesh(nucleus, color='#FF3333', opacity=1.0,
                                     specular=0.6, smooth_shading=True)
             else:
-                # 일반 원자
                 self.plotter.add_mesh(mesh_copy, color=color, opacity=1.0,
                                     specular=0.4, smooth_shading=True)
-
-        # 결합 메시 그리기
         for mesh, color in self.bond_meshes or []:
             mesh_copy = mesh.copy()
             mesh_copy.translate(offset)
             self.plotter.add_mesh(mesh_copy, color=color, opacity=1.0,
                                 smooth_shading=True)
-
-        # 혼성화 정보 텍스트
         if self.hybridization_info:
             info = self.hybridization_info
             text  = (f"결합수: {info['bond_count']}, 비공유전자쌍: {info['lone_pairs']}, SN: {info['SN']}<br>"
                     f"결합구조: {info['structure']}, 혼성화: {info['hybrid']}")
             self.set_output(text)
-
-        # AO 오비탈 그리기 (s, p, px/py/pz)
         if valid_ao and self.atom_positions is not None:
             atom_symbol = self.atom_symbols[sel_idx]
             atom_center = self.atom_positions[sel_idx] + offset
@@ -1269,7 +1191,6 @@ class MoleculeApp(QWidget):
                 if self.px_checkbox.isChecked(): checked_orbitals.append('px')
                 if self.py_checkbox.isChecked(): checked_orbitals.append('py')
                 if self.pz_checkbox.isChecked(): checked_orbitals.append('pz')
-
             for orb_type in checked_orbitals:
                 try:
                     ho = HydrogenOrbital(
@@ -1281,7 +1202,6 @@ class MoleculeApp(QWidget):
                 except Exception as e:
                     self.set_output(f"<b>오비탈 생성 오류: {e}</b>")
                     continue
-
                 for surf in ho.generate_isosurfaces():
                     mesh_o = surf['surface'].copy()
                     mesh_o.points += atom_center
@@ -1289,16 +1209,12 @@ class MoleculeApp(QWidget):
                     opacity = 0.7 if surf['type'] == 'outer' else 0.4
                     self.plotter.add_mesh(mesh_o, color=color,
                                         opacity=opacity, smooth_shading=True)
-
-        # SN 형태 표시
         if valid_ao and self.hybridization_info:
             sn                = self.hybridization_info['SN']
             atom_pos          = self.atom_positions[sel_idx] + offset
             neighbor_indices  = list(self.molecule.atoms[sel_idx].neighbors)
             neighbor_positions= [self.atom_positions[i] + offset for i in neighbor_indices]
             add_sn_shape(self.plotter, sn, atom_pos, neighbor_positions)
-
-        # 결합 길이 레이블
         if self.state.get('show_bond_length') and self.bond_lengths:
             pos = get_bond_label_pos_perp(self.atom_positions+offset, self.bonds, offset=0.5)
             labels = [f"{l:.2f}Å" for l in self.bond_lengths]
@@ -1306,8 +1222,6 @@ class MoleculeApp(QWidget):
                                         font_size=15, text_color='#A5D6A7',
                                         point_color='#23272F', point_size=18,
                                         name='bond_label')
-
-        # 결합 각도 레이블
         if self.state.get('show_bond_angle') and self.bond_angles:
             pos_vals = [c+offset for c, _ in self.bond_angles]
             angle_vals = [f"{a:.1f}°" for _, a in self.bond_angles]
@@ -1315,8 +1229,6 @@ class MoleculeApp(QWidget):
                                         font_size=15, text_color='#FFD54F',
                                         point_color='#23272F', point_size=18,
                                         name='angle_label')
-
-        # 배경·축·경계 설정
         self.plotter.set_background("#000000")
         self.plotter.add_box_axes(line_width=3,
                                 xlabel='X', ylabel='Y', zlabel='Z',
@@ -1327,10 +1239,7 @@ class MoleculeApp(QWidget):
                                 xtitle='X', ytitle='Y', ztitle='Z',
                                 color='#393D45', font_size=14,
                                 corner_factor=0.9)
-
-        # 변경사항 화면에 반영
         self.plotter.render()
-
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)
