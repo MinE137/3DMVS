@@ -832,17 +832,7 @@ class HydrogenOrbital:
                         'color': color
                     })
         return surfaces
-    
-def get_orbital_rotation(orb_type):
-    if orb_type == 'pz':
-        return np.eye(3)
-    elif orb_type == 'px':
-        return np.array([[0,0,1],[0,1,0],[1,0,0]])
-    elif orb_type == 'py':
-        return np.array([[1,0,0],[0,0,1],[0,1,0]])
-    else:
-        return np.eye(3)
-    
+
 def get_lone_pair_count(element_property_value, bond_count):
     v = element_property_value
     b = bond_count
