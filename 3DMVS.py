@@ -869,7 +869,7 @@ class MoleculeApp(QWidget):
         self.setWindowTitle("3D Molecular Visual Simulator")
         self.setMinimumSize(720, 480)
         self.resize(1280, 720)
-        self.hybridization_info = None
+        self.StericNumber_info = None
         layout = QHBoxLayout(self)
         self.plotter = QtInteractor(self)
         layout.addWidget(self.plotter, stretch=2)
@@ -961,13 +961,13 @@ class MoleculeApp(QWidget):
 
     def analyze_StericNumber(self):
         if not hasattr(self, "molecule") or self.selected_atom_idx is None or self.atom_positions is None:
-            self.hybridization_info = None
+            self.StericNumber_info = None
             return
         atom = self.molecule.atoms[self.selected_atom_idx]
         symbol = atom.symbol
         bond_count = len(atom.neighbors)
         if bond_count == 0:
-            self.hybridization_info = None
+            self.StericNumber_info = None
             return
         prop = ELEMENT_PROPERTIES.get(symbol)
         group_number = prop[-2] if prop and len(prop) >= 2 else None
@@ -992,7 +992,7 @@ class MoleculeApp(QWidget):
             structure, hybrid = '굽은형2', 'sp3'
         else:
             structure, hybrid = None, None
-        self.hybridization_info = {
+        self.StericNumber_info = {
         'atom_idx': self.selected_atom_idx,
         'symbol': symbol,
         'bond_count': bond_count,
@@ -1167,8 +1167,8 @@ class MoleculeApp(QWidget):
             mesh_copy.translate(offset)
             self.plotter.add_mesh(mesh_copy, color=color, opacity=1.0,
                                 smooth_shading=True)
-        if self.hybridization_info:
-            info = self.hybridization_info
+        if self.StericNumber_info:
+            info = self.StericNumber_info
             text  = (f"결합수: {info['bond_count']}, 비공유전자쌍: {info['lone_pairs']}, SN: {info['SN']}<br>"
                     f"결합구조: {info['structure']}, 혼성화: {info['hybrid']}")
             self.set_output(text)
@@ -1199,8 +1199,8 @@ class MoleculeApp(QWidget):
                     opacity = 0.7 if surf['type'] == 'outer' else 0.4
                     self.plotter.add_mesh(mesh_o, color=color,
                                         opacity=opacity, smooth_shading=True)
-        if valid_ao and self.hybridization_info:
-            sn                = self.hybridization_info['SN']
+        if valid_ao and self.StericNumber_info:
+            sn                = self.StericNumber_info['SN']
             atom_pos          = self.atom_positions[sel_idx] + offset
             neighbor_indices  = list(self.molecule.atoms[sel_idx].neighbors)
             neighbor_positions= [self.atom_positions[i] + offset for i in neighbor_indices]
